@@ -22,6 +22,7 @@ const BASE_URL = 'https://s.pepesto.com/api';
 
 // ─── Step 1: Request an API key ───────────────────────────────────────────────
 
+// #region request-api-key
 async function requestApiKey(email) {
   console.log(`\nRequesting API key for: ${email}`);
 
@@ -44,9 +45,11 @@ async function requestApiKey(email) {
 
   return data;
 }
+// #endregion
 
 // ─── Step 2: Check remaining credits ─────────────────────────────────────────
 
+// #region check-credits
 async function checkCredits(apiKey) {
   console.log('Checking credits for key:', apiKey.slice(0, 12) + '...');
 
@@ -71,9 +74,11 @@ async function checkCredits(apiKey) {
 
   return data;
 }
+// #endregion
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+// #region main
 async function main() {
   const email  = process.env.PEPESTO_EMAIL;
   const apiKey = process.env.PEPESTO_API_KEY;
@@ -99,5 +104,6 @@ async function main() {
     process.exit(1);
   }
 }
+// #endregion
 
 main();

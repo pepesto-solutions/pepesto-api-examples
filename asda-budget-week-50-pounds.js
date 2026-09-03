@@ -29,33 +29,58 @@ if (!API_KEY) {
  * @param {number} limit
  * @returns {Promise<Array<{title: string, kg_token: string, nutrition: object}>>}
  */
-async function suggestRecipes(query, limit = 5) {
-  const response = await fetch(`${API_BASE}/suggest`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({ "query": query, num_to_fetch: limit }),
-  });
+// #region suggest-recipes
+// /suggest returns 3 recipes per call, so several queries are needed to fill a
+// week. The same dish can come back from two queries — and even twice within a
+// single call — with a different kg_token each time, so duplicates have to be
+// dropped by title. Each query pulls on a different main ingredient.
+async function suggestRecipes(limit = 5) {
+  const queries = [
+    'cheap family dinner with chicken, under 10 pounds',
+    'cheap family dinner with beef mince, budget friendly',
+    'cheap vegetarian family dinner, budget friendly',
+  ];
 
-  const text = await response.text();
+  const responses = await Promise.all(queries.map(async (query) => {
+    const response = await fetch(`${API_BASE}/suggest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({ query }),
+    });
 
-  if (!response.ok) {
-    throw new Error(`/suggest failed: ${response.status} ${text}`);
-  }
+    const text = await response.text();
 
-  const data = JSON.parse(text);
+    if (!response.ok) {
+      throw new Error(`/suggest failed: ${response.status} ${text}`);
+    }
 
-  const recipes = data.recipes.slice(0, limit).map(r => ({
-    title: r.title,
-    kg_token: r.kg_token,
-    nutrition: r.nutrition,
-    ingredients: r.ingredients,
+    return JSON.parse(text);
   }));
 
-  return recipes;
+  const seen = new Set();
+  const recipes = [];
+  for (const r of responses.flatMap(d => d.recipes)) {
+    const key = r.title.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recipes.push({
+      title: r.title,
+      kg_token: r.kg_token,
+      nutrition: r.nutrition,
+      ingredients: r.ingredients,
+    });
+  }
+
+  if (recipes.length < limit) {
+    console.log(`Only ${recipes.length} distinct dinners came back — planning for those.`);
+  }
+
+  return recipes.slice(0, limit);
 }
+// #endregion
 
 /**
  * Step 2: Look up ASDA prices for one recipe's kg_token.
@@ -64,6 +89,7 @@ async function suggestRecipes(query, limit = 5) {
  * @param {string} kgToken
  * @returns {Promise<Array>}
  */
+// #region fetch-asda-products
 async function fetchAsdaProducts(kgToken) {
   const response = await fetch(`${API_BASE}/products`, {
     method: 'POST',
@@ -85,6 +111,7 @@ async function fetchAsdaProducts(kgToken) {
   const data = await response.json();
   return data.items;
 }
+// #endregion
 
 /**
  * Calculate the estimated cost in pence for a set of matched items,
@@ -93,6 +120,7 @@ async function fetchAsdaProducts(kgToken) {
  * @param {Array} items
  * @returns {number} total cost in pence
  */
+// #region cheapest-cost
 function cheapestCost(items) {
   return items.reduce((total, item) => {
     if (!item.products || item.products.length === 0) return total;
@@ -101,14 +129,16 @@ function cheapestCost(items) {
     return total + prices[0];
   }, 0);
 }
+// #endregion
 
 /**
  * Main: suggest 5 budget meals, price them all at ASDA, tally up.
  */
+// #region main
 async function main() {
   console.log('Searching for budget family dinner ideas...\n');
 
-  const recipes = await suggestRecipes('cheap family dinners under £10', MEALS_TARGET);
+  const recipes = await suggestRecipes(MEALS_TARGET);
 
   console.log(`Found ${recipes.length} meal suggestions:\n`);
   recipes.forEach((r, i) => {
@@ -161,6 +191,7 @@ async function main() {
     console.log('or look for ASDA Smart Price and own-brand alternatives.');
   }
 }
+// #endregion
 
 main().catch(err => {
   console.error('Error:', err.message);

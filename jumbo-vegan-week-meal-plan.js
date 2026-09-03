@@ -28,25 +28,53 @@ if (!API_KEY) {
  * @param {number} limit
  * @returns {Promise<Array>}
  */
-async function suggestVeganDinners(query, limit = 5) {
-  const response = await fetch(`${API_BASE}/suggest`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({ query, num_to_fetch: limit }),
-  });
+// #region suggest-vegan-dinners
+// /suggest returns 3 recipes per call, so several queries are needed to fill a
+// week. The same dish can come back from two queries — and even twice within a
+// single call — with a different kg_token each time, so duplicates have to be
+// dropped by title. Each query pulls on a different style of vegan dinner.
+async function suggestVeganDinners(limit = 5) {
+  const queries = [
+    'vegan dinner with beans or lentils',
+    'vegan pasta or noodle dinner',
+    'vegan curry or stir fry dinner',
+  ];
 
-  const text = await response.text();
+  const responses = await Promise.all(queries.map(async (query) => {
+    const response = await fetch(`${API_BASE}/suggest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({ query }),
+    });
 
-  if (!response.ok) {
-    throw new Error(`/suggest failed: ${response.status} ${text}`);
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`/suggest failed: ${response.status} ${text}`);
+    }
+
+    return JSON.parse(text);
+  }));
+
+  const seen = new Set();
+  const recipes = [];
+  for (const r of responses.flatMap(d => d.recipes)) {
+    const key = r.title.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recipes.push(r);
   }
 
-  const data = JSON.parse(text);
-  return data.recipes.slice(0, limit);
+  if (recipes.length < limit) {
+    console.log(`Only ${recipes.length} distinct dinners came back — planning for those.`);
+  }
+
+  return recipes.slice(0, limit);
 }
+// #endregion
 
 /**
  * Step 2: Fetch Jumbo products for a single recipe's kg_token.
@@ -54,6 +82,7 @@ async function suggestVeganDinners(query, limit = 5) {
  * @param {string} kgToken
  * @returns {Promise<Array>} items array
  */
+// #region fetch-jumbo-products
 async function fetchJumboProducts(kgToken) {
   const response = await fetch(`${API_BASE}/products`, {
     method: 'POST',
@@ -75,6 +104,7 @@ async function fetchJumboProducts(kgToken) {
   const data = await response.json();
   return data.items;
 }
+// #endregion
 
 /**
  * Calculate estimated cost for a recipe using the cheapest product
@@ -83,6 +113,7 @@ async function fetchJumboProducts(kgToken) {
  * @param {Array} items
  * @returns {number} total in euro cents
  */
+// #region estimate-cost
 function estimateCost(items) {
   return items.reduce((total, item) => {
     if (!item.products || item.products.length === 0) return total;
@@ -90,15 +121,18 @@ function estimateCost(items) {
     return total + prices[0];
   }, 0);
 }
+// #endregion
 
 /**
  * Format euro cents as a EUR price string.
  * @param {number} cents
  * @returns {string}
  */
+// #region format-eur
 function formatEUR(cents) {
   return `€${(cents / 100).toFixed(2)}`;
 }
+// #endregion
 
 /**
  * Print a formatted shopping list for one recipe.
@@ -107,6 +141,7 @@ function formatEUR(cents) {
  * @param {Array} items
  * @param {number} index - 1-based day number
  */
+// #region print-meal-summary
 function printMealSummary(title, items, index) {
   const costCents = estimateCost(items);
   const matchedCount = items.filter(i => i.products?.length > 0).length;
@@ -127,14 +162,16 @@ function printMealSummary(title, items, index) {
     console.log(`    • ${item.item_name.padEnd(32)} ${top.product_name} — ${price}${promo}`);
   });
 }
+// #endregion
 
 /**
  * Main: suggest 5 vegan dinners, look up Jumbo prices, print the week plan.
  */
+// #region main
 async function main() {
   console.log('Searching for vegan dinner recipes...\n');
 
-  const recipes = await suggestVeganDinners('vegan dinner', DINNERS_PER_WEEK);
+  const recipes = await suggestVeganDinners(DINNERS_PER_WEEK);
 
   if (recipes.length === 0) {
     console.log('No vegan recipes returned. Try a different query.');
@@ -172,6 +209,7 @@ async function main() {
   console.log('to create a Jumbo checkout session, then pass the session_id to /api/checkout for the basket link.');
   console.log('See: https://pepesto.com/api');
 }
+// #endregion
 
 main().catch(err => {
   console.error('Error:', err.message);
