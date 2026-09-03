@@ -27,12 +27,12 @@ const RECIPE_URLS = [
 ];
 
 /**
- * Step 1: Parse a single recipe URL to get structured ingredients and a kg_token.
+ * Step 1: Parse a single recipe URL to get its kg_token.
  * The kg_token is a compact representation of the recipe's ingredient graph
  * that can be passed directly to /api/products.
  *
  * @param {string} recipeUrl
- * @returns {Promise<{title: string, kg_token: string}>}
+ * @returns {Promise<{recipeUrl: string, kg_token: string}>}
  */
 async function parseRecipe(recipeUrl) {
   const response = await fetch(`${API_BASE}/parse`, {
@@ -54,10 +54,8 @@ async function parseRecipe(recipeUrl) {
     throw new Error(`/parse failed for ${recipeUrl}: ${response.status} ${text}`);
   }
 
-  const data = JSON.parse(text);
-
-  const { title, kg_token } = data.recipe;
-  return { title, kg_token };
+  const { kg_token } = JSON.parse(text);
+  return { recipeUrl, kg_token };
 }
 
 /**
@@ -126,8 +124,8 @@ async function main() {
   // Parse all recipes concurrently — no reason to wait on each one sequentially.
   const parsedRecipes = await Promise.all(RECIPE_URLS.map(parseRecipe));
 
-  parsedRecipes.forEach(({ title }, i) => {
-    console.log(`  ${i + 1}. ${title}`);
+  parsedRecipes.forEach(({ recipeUrl }, i) => {
+    console.log(`  ${i + 1}. ${recipeUrl}`);
   });
 
   const kgTokens = parsedRecipes.map(r => r.kg_token);

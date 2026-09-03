@@ -45,8 +45,8 @@ async function parseRecipe(label, url) {
     body: JSON.stringify({ recipe_url: url, locale: 'en-IE' }),
   });
   if (!res.ok) throw new Error(`/parse failed for ${label}: ${res.status}`);
-  const data = await res.json();
-  return { label, title: data.recipe.title, kg_token: data.recipe.kg_token, ingredients: data.recipe.ingredients };
+  const { kg_token } = await res.json();
+  return { label, url, kg_token };
 }
 
 async function getProducts(kgTokens) {
@@ -82,7 +82,7 @@ async function main() {
   const parsed = await Promise.all(RECIPES.map(r => parseRecipe(r.label, r.url)));
 
   console.log('\nParsed courses:');
-  parsed.forEach(p => console.log(`  ${p.label}: "${p.title}" (${p.ingredients.length} ingredients)`));
+  parsed.forEach(p => console.log(`  ${p.label}: ${p.url}`));
 
   // Step 2 — get Supervalu products for all kg_tokens at once
   const kgTokens = parsed.map(p => p.kg_token);
