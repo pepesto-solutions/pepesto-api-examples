@@ -20,7 +20,7 @@ node supermarkets/tesco-recipe-to-cart-oneshot.js
 
 | # | Country | Supermarket | Script | Solution |
 |---|---------|-------------|--------|-------|
-| 1 | 🇬🇧 GB | Tesco | [`tesco-recipe-to-cart-oneshot.js`](tesco-recipe-to-cart-oneshot.js) | [tesco-gb](https://pepesto.com/built-with-pepesto/tesco-gb/) |
+| 1 | 🇬🇧 GB | Tesco | [`tesco-recipe-to-cart-oneshot.js`](tesco-recipe-to-cart-oneshot.js) | [tesco](https://www.pepesto.com/built-with-pepesto/tesco/) |
 | 2 | 🇬🇧 GB | Sainsbury's | [`sainsburys-weekly-meal-planner.js`](sainsburys-weekly-meal-planner.js) | [sainsburys](https://pepesto.com/built-with-pepesto/sainsburys/) |
 | 3 | 🇬🇧 GB | ASDA | [`asda-budget-week-50-pounds.js`](asda-budget-week-50-pounds.js) | [asda](https://pepesto.com/built-with-pepesto/asda/) |
 | 4 | 🇬🇧 GB | Morrisons | [`morrisons-telegram-grocery-bot.js`](morrisons-telegram-grocery-bot.js) | [morrisons](https://pepesto.com/built-with-pepesto/morrisons/) |
@@ -31,7 +31,6 @@ node supermarkets/tesco-recipe-to-cart-oneshot.js
 | 9 | 🇩🇪 DE | Rewe | [`rewe-germany-vs-switzerland-prices.js`](rewe-germany-vs-switzerland-prices.js) | [rewe](https://pepesto.com/built-with-pepesto/rewe/) |
 | 10 | 🇨🇭 CH | Coop CH | [`coop-ch-sunday-dinner-oneshot.js`](coop-ch-sunday-dinner-oneshot.js) | [coop-ch](https://pepesto.com/built-with-pepesto/coop-ch/) |
 | 11 | 🇨🇭 CH | Migros | [`migros-promotions-scanner-chf.js`](migros-promotions-scanner-chf.js) | [migros](https://pepesto.com/built-with-pepesto/migros/) |
-| 12 | 🇨🇭 CH | Farmy | [`farmy-organic-basket-builder.js`](farmy-organic-basket-builder.js) | [farmy](https://pepesto.com/built-with-pepesto/farmy/) |
 | 13 | 🇨🇭 CH | Aldi CH | [`aldi-ch-cheapest-carbonara.js`](aldi-ch-cheapest-carbonara.js) | [aldi-ch](https://pepesto.com/built-with-pepesto/aldi-ch/) |
 | 14 | 🇧🇪 BE | Colruyt | [`colruyt-vs-delhaize-belgium-comparison.js`](colruyt-vs-delhaize-belgium-comparison.js) | [colruyt](https://pepesto.com/built-with-pepesto/colruyt/) |
 | 15 | 🇧🇪 BE | Delhaize | [`delhaize-keto-week-meal-plan.js`](delhaize-keto-week-meal-plan.js) | [delhaize](https://pepesto.com/built-with-pepesto/delhaize/) |

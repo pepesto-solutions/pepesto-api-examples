@@ -23,30 +23,55 @@ const headers = {
 
 // ─── Step 1: Suggest 5 easy dinner recipes ───────────────────────────────────
 
-async function suggestRecipes() {
+// #region suggest-recipes
+// /suggest returns 3 recipes per call, so several queries are needed to fill a
+// week. The same dish can come back from two queries — and even twice within a
+// single call — with a different kg_token each time, so duplicates have to be
+// dropped by title. Each query pulls on a different main ingredient.
+async function suggestRecipes(target = 5) {
   console.log('Searching for easy dinner recipes for 2…\n');
 
-  const response = await fetch(`${BASE_URL}/suggest`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      query: 'easy dinner for 2 few ingredients',
-      num_to_fetch: 5,
-    }),
-  });
+  const queries = [
+    'easy dinner for 2 with chicken, few ingredients',
+    'easy dinner for 2 with fish, few ingredients',
+    'easy vegetarian dinner for 2, few ingredients',
+  ];
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`POST /api/suggest failed (${response.status}): ${text}`);
+  const responses = await Promise.all(queries.map(async (query) => {
+    const response = await fetch(`${BASE_URL}/suggest`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ query }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`POST /api/suggest failed (${response.status}): ${text}`);
+    }
+
+    return response.json();
+  }));
+
+  const seen = new Set();
+  const recipes = [];
+  for (const recipe of responses.flatMap(d => d.recipes)) {
+    const key = recipe.title.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recipes.push(recipe);
   }
 
-  const data = await response.json();
-  // Take the first 5 results
-  return data.recipes.slice(0, 5);
+  if (recipes.length < target) {
+    console.log(`Only ${recipes.length} distinct dinners came back — planning for those.`);
+  }
+
+  return recipes.slice(0, target);
 }
+// #endregion
 
 // ─── Step 2: Match ingredients to Meny products ──────────────────────────────
 
+// #region get-products-for-recipe
 async function getProductsForRecipe(recipe) {
   const response = await fetch(`${BASE_URL}/products`, {
     method: 'POST',
@@ -64,9 +89,11 @@ async function getProductsForRecipe(recipe) {
 
   return response.json();
 }
+// #endregion
 
 // ─── Helper: sum matched product prices (in øre) ─────────────────────────────
 
+// #region sum-recipe-cost
 function sumRecipeCost(productsResponse) {
   let totalCents = 0;
   const matched = [];
@@ -85,9 +112,11 @@ function sumRecipeCost(productsResponse) {
 
   return { totalCents, matched };
 }
+// #endregion
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+// #region main
 async function main() {
   if (!process.env.PEPESTO_API_KEY) {
     console.error('Error: PEPESTO_API_KEY env var is not set.');
@@ -146,6 +175,7 @@ async function main() {
     },
   }, null, 2));
 }
+// #endregion
 
 main().catch(err => {
   console.error('Fatal:', err.message);
