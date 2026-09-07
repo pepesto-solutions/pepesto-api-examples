@@ -32,9 +32,9 @@ export function findPromotions(parsedProducts, minPercentage = 5) {
     if (!product.promo || typeof product.promo_percentage !== 'number') continue;
     if (product.promo_percentage < minPercentage) continue;
 
-    // Prefer English name, fall back to any available locale
+    // Prefer English name, fall back to whichever locale the chain does carry
     const names = product.names ?? {};
-    const name = names.en ?? names.pl ?? names.bg ?? names.no ?? names.nl ?? product.entity_name ?? 'Unknown product';
+    const name = names.en ?? Object.values(names)[0] ?? 'Unknown product';
 
     results.push({
       name,

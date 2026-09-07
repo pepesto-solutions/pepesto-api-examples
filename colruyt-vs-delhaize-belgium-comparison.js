@@ -17,18 +17,54 @@ if (!API_KEY) {
   process.exit(1);
 }
 
+const headers = {
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${API_KEY}`,
+};
+
+// The basket both chains have to price. Generic names on purpose: /products
+// resolves each one to whatever that chain actually stocks, which is what makes
+// the two sides comparable. Keep it to 30 items — that is what /parse accepts
+// in one shopping list.
+const BASKET = [
+  'ground pork', 'beef', 'chicken', 'sausage', 'bacon',
+  'milk', 'butter', 'cheese', 'eggs', 'yoghurt', 'mozzarella cheese',
+  'tomatoes', 'carrots', 'onions', 'potatoes', 'mushrooms', 'apples',
+  'canned tomatoes', 'chickpeas',
+  'beer', 'orange juice', 'sparkling water', 'coffee',
+  'spaghetti', 'rice', 'flour', 'sugar', 'olive oil', 'salt', 'bread',
+];
+
 /**
- * Fetches the full product catalog for a given supermarket domain.
+ * Turns the shopping list into a kg_token. Sending the same token to both
+ * chains is what lets the two baskets line up item by item.
  */
-async function fetchCatalog(domain) {
-  console.log(`Fetching catalog for ${domain}...`);
-  const response = await fetch(`${API_BASE}/catalog`, {
+async function parseBasket() {
+  console.log(`Parsing a ${BASKET.length}-item basket...`);
+  const response = await fetch(`${API_BASE}/parse`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({ supermarket_domain: domain }),
+    headers,
+    body: JSON.stringify({ recipe_text: BASKET.join('\n') }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Pepesto API error — ${response.status}: ${errorText}`);
+  }
+
+  const { kg_token } = await response.json();
+  return kg_token;
+}
+
+/**
+ * Prices the basket at one chain.
+ */
+async function priceBasketAt(kgToken, domain) {
+  console.log(`Pricing the basket at ${domain}...`);
+  const response = await fetch(`${API_BASE}/products`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ recipe_kg_tokens: [kgToken], supermarket_domain: domain }),
   });
 
   if (!response.ok) {
@@ -36,12 +72,11 @@ async function fetchCatalog(domain) {
     throw new Error(`Pepesto API error for ${domain} — ${response.status}: ${errorText}`);
   }
 
-  const data = await response.json();
-  return data.parsed_products;
+  return response.json();
 }
 
 /**
- * Groups entity names into Belgian grocery categories.
+ * Groups item names into Belgian grocery categories.
  */
 function categorise(entityName) {
   const meat = ['Ground pork', 'Beef', 'Lamb chops', 'Ham', 'Chicken', 'Sausage', 'Bacon', 'Minced beef', 'Salami', 'Pork'];
@@ -61,29 +96,26 @@ function categorise(entityName) {
 }
 
 /**
- * Builds an entity→cheapest-product index from a catalog.
- * Skips unavailable products.
+ * Builds an item→cheapest-product index from a /products response. Each item
+ * comes back with several candidate products; the cheapest one is what the two
+ * chains get compared on.
  */
-function buildEntityIndex(catalog) {
+function buildEntityIndex(productsData) {
   const index = {};
 
-  for (const [url, product] of Object.entries(catalog)) {
-    if (product.unavailable) continue;
-    const entity = product.entity_name;
-    if (!entity) continue;
+  for (const item of productsData.items ?? []) {
+    const cheapest = (item.products ?? [])
+      .filter(p => typeof p.product?.price?.price === 'number')
+      .sort((a, b) => a.product.price.price - b.product.price.price)[0];
+    if (!cheapest) continue;
 
-    const existing = index[entity];
-    if (!existing || product.price < existing.price) {
-      index[entity] = {
-        name: product.names?.en || product.names?.nl || entity,
-        price: product.price,
-        currency: product.currency || 'EUR',
-        quantityStr: product.quantity_str || '',
-        pricePerUnit: product.price_per_meausure_unit || '',
-        promo: product.promo || false,
-        url,
-      };
-    }
+    index[item.item_name] = {
+      name: cheapest.product.product_name || item.item_name,
+      price: cheapest.product.price.price,
+      currency: productsData.currency || 'EUR',
+      promo: cheapest.product.price.promotion?.promo || false,
+      url: cheapest.product.product_id || '',
+    };
   }
 
   return index;
@@ -106,8 +138,8 @@ function compareStores(colruytIndex, delhaizeIndex) {
     matches.push({
       entity,
       category: categorise(entity),
-      colruyt: { name: colruyt.name, price: colruyt.price, quantityStr: colruyt.quantityStr, promo: colruyt.promo },
-      delhaize: { name: delhaize.name, price: delhaize.price, quantityStr: delhaize.quantityStr, promo: delhaize.promo },
+      colruyt: { name: colruyt.name, price: colruyt.price, promo: colruyt.promo },
+      delhaize: { name: delhaize.name, price: delhaize.price, promo: delhaize.promo },
       diffCents,
       diffPct: diffPct.toFixed(1),
       winner: diffCents < 0 ? 'Colruyt' : diffCents > 0 ? 'Delhaize' : 'tie',
@@ -141,21 +173,23 @@ function fmt(cents) {
 
 async function main() {
   console.log('=== Colruyt vs Delhaize — Belgian Grocery Price Showdown ===\n');
-  console.log('Fetching both catalogs in parallel...\n');
 
-  const [colruytCatalog, delhaizeCatalog] = await Promise.all([
-    fetchCatalog('colruyt.be'),
-    fetchCatalog('delhaize.be'),
+  const kgToken = await parseBasket();
+
+  console.log('Pricing the same basket at both chains in parallel...\n');
+  const [colruytData, delhaizeData] = await Promise.all([
+    priceBasketAt(kgToken, 'colruyt.be'),
+    priceBasketAt(kgToken, 'delhaize.be'),
   ]);
 
-  console.log(`Colruyt:  ${Object.keys(colruytCatalog).length} products`);
-  console.log(`Delhaize: ${Object.keys(delhaizeCatalog).length} products\n`);
+  const colruytIndex = buildEntityIndex(colruytData);
+  const delhaizeIndex = buildEntityIndex(delhaizeData);
 
-  const colruytIndex = buildEntityIndex(colruytCatalog);
-  const delhaizeIndex = buildEntityIndex(delhaizeCatalog);
+  console.log(`Colruyt priced up ${Object.keys(colruytIndex).length} of the ${BASKET.length} items`);
+  console.log(`Delhaize priced up ${Object.keys(delhaizeIndex).length} of the ${BASKET.length} items\n`);
 
   const matches = compareStores(colruytIndex, delhaizeIndex);
-  console.log(`Matched ${matches.length} product categories between the two stores.\n`);
+  console.log(`Matched ${matches.length} items between the two stores.\n`);
 
   // Top 15 biggest differences
   console.log('=== Biggest price differences ===\n');
@@ -189,8 +223,8 @@ async function main() {
   const total = totalColruyt + totalDelhaize;
   const colruytPct = ((totalColruyt / total) * 100).toFixed(0);
   console.log('\n=== Verdict ===\n');
-  console.log(`Colruyt cheaper:  ${colruytPct}% of matched product categories`);
-  console.log(`Delhaize cheaper: ${(100 - parseInt(colruytPct))}% of matched product categories\n`);
+  console.log(`Colruyt cheaper:  ${colruytPct}% of matched items`);
+  console.log(`Delhaize cheaper: ${(100 - parseInt(colruytPct))}% of matched items\n`);
 
   if (totalColruyt > totalDelhaize) {
     console.log('Colruyt wins overall — consistent with its reputation as Belgium\'s');

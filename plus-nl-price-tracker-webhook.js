@@ -17,14 +17,15 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-// Products we want to track by entity_name.
-// These are items we buy regularly and want price drop alerts for.
+// Products we want to track: items we buy regularly and want price drop alerts
+// for. The catalog has no category field, so each one is a label and the words
+// that identify it in a product's English name.
 const TRACKED_ENTITIES = [
-  'Olive oil',
-  'Pasta',
-  'Mozzarella cheese',
-  'Eggs',
-  'Butter',
+  { label: 'Olive oil',         keywords: ['olive oil'] },
+  { label: 'Pasta',             keywords: ['spaghetti', 'penne', 'pasta'] },
+  { label: 'Mozzarella cheese', keywords: ['mozzarella'] },
+  { label: 'Eggs',              keywords: ['egg'] },
+  { label: 'Butter',            keywords: ['butter'] },
 ];
 
 // Simulated "last week" snapshot — in a real setup you'd load this from a file or DB.
@@ -67,20 +68,24 @@ async function fetchPlusCatalog() {
 }
 
 /**
- * Given the full catalog, finds the cheapest product for each tracked entity.
- * Returns a map of entity_name → { name, price, url }.
+ * Given the full catalog, finds the cheapest product for each tracked label.
+ * Returns a map of label → { name, price, url }.
  */
 function findTrackedProducts(catalog) {
   const results = {};
 
   for (const [url, product] of Object.entries(catalog)) {
-    const entity = product.entity_name;
-    if (!TRACKED_ENTITIES.includes(entity)) continue;
+    const name = product.names?.en || product.names?.nl;
+    if (!name) continue;
 
-    const currentBest = results[entity];
+    const haystack = name.toLowerCase();
+    const tracked = TRACKED_ENTITIES.find(t => t.keywords.some(k => haystack.includes(k)));
+    if (!tracked) continue;
+
+    const currentBest = results[tracked.label];
     if (!currentBest || product.price < currentBest.price) {
-      results[entity] = {
-        name: product.names?.en || product.names?.nl || entity,
+      results[tracked.label] = {
+        name,
         price: product.price,
         currency: product.currency || 'EUR',
         url,
@@ -98,7 +103,7 @@ function findTrackedProducts(catalog) {
 function detectPriceDrops(thisWeek, lastWeek) {
   const alerts = [];
 
-  for (const entity of TRACKED_ENTITIES) {
+  for (const { label: entity } of TRACKED_ENTITIES) {
     const current = thisWeek[entity];
     const previous = lastWeek[entity];
 

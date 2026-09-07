@@ -21,81 +21,101 @@ const headers = {
   'Authorization': `Bearer ${API_KEY}`,
 };
 
-async function fetchConadCatalog() {
-  console.log('Fetching full Conad catalog...');
-  const res = await fetch(`${BASE_URL}/catalog`, {
+/**
+ * Fetches every Conad product that is currently on promotion, as a flat list.
+ *
+ * /promotions and /catalog answer in the same shape: a parsed_products object
+ * keyed by the product's page URL. /catalog returns the whole indexed range,
+ * /promotions only the discounted part of it, which is all this script wants
+ * and costs a third of the price.
+ */
+async function fetchConadPromotions() {
+  console.log('Fetching Conad promotions...');
+  const res = await fetch(`${BASE_URL}/promotions`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ supermarket_domain: 'spesaonline.conad.it' }),
   });
-  if (!res.ok) throw new Error(`/catalog failed: ${res.status}`);
+  if (!res.ok) throw new Error(`/promotions failed: ${res.status}`);
   const data = await res.json();
-  return data.parsed_products;
+  return Object.entries(data.parsed_products ?? {}).map(([url, product]) => ({ url, ...product }));
 }
 
 function formatPrice(cents) {
   return `€${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * The pack size as a short string, e.g. "375g" or "500ml". Returns an empty
+ * string when the catalog does not know the size.
+ */
+function formatQuantity(quantity) {
+  if (!quantity) return '';
+  if (quantity.accurate_grams) return `${quantity.accurate_grams}g`;
+  if (quantity.Unit?.Milliliters) return `${quantity.Unit.Milliliters}ml`;
+  return '';
+}
+
 async function main() {
-  const catalog = await fetchConadCatalog();
-  const allProducts = Object.entries(catalog);
+  const products = await fetchConadPromotions();
 
-  console.log(`Catalog contains ${allProducts.length} products total.\n`);
+  console.log(`Conad has ${products.length} products on promotion.\n`);
 
-  // Filter to products currently on promotion
-  const onPromo = allProducts
-    .filter(([, p]) => p.promo === true)
-    .map(([url, p]) => ({ url, ...p }));
+  // promo_percentage is the honest measure of a deal, but Conad only publishes
+  // it for straightforward price cuts. A "buy 2 get 3" carries no percentage,
+  // so those sort to the back and are ordered by price instead.
+  const discountOf = p => p.promo_percentage ?? 0;
+  const ranked = [...products].sort(
+    (a, b) => discountOf(b) - discountOf(a) || (a.price ?? 0) - (b.price ?? 0),
+  );
 
-  console.log(`Found ${onPromo.length} products currently on promotion.\n`);
-
-  // Sort by lowest absolute price (best deals relative to quantity)
-  // We compute price-per-100g where available, else sort by raw price
-  const scored = onPromo.map(p => {
-    // Try to extract a numeric per-unit price for fair comparison
-    let perUnitScore = p.price;
-    if (p.price_per_meausure_unit) {
-      const match = p.price_per_meausure_unit.match(/([\d.,]+)/);
-      if (match) perUnitScore = parseFloat(match[1].replace(',', '.')) * 100;
-    }
-    return { ...p, perUnitScore };
-  }).sort((a, b) => a.perUnitScore - b.perUnitScore);
-
-  // Display top 25 deals
   const TOP_N = 25;
   console.log(`=== Top ${TOP_N} Conad promotions this week ===\n`);
 
-  scored.slice(0, TOP_N).forEach((p, i) => {
-    const name      = p.names.en || p.names.it;
-    const price     = formatPrice(p.price);
-    const qty       = p.quantity_str || '';
-    const deadline  = p.promo_deadline_yyyy_mm_dd ? ` (until ${p.promo_deadline_yyyy_mm_dd})` : '';
-    const perUnit   = p.price_per_meausure_unit ? ` @ ${p.price_per_meausure_unit}` : '';
-    const category  = p.entity_name;
-    const rank      = String(i + 1).padStart(2, ' ');
+  ranked.slice(0, TOP_N).forEach((p, i) => {
+    const rank     = String(i + 1).padStart(2, ' ');
+    const name     = p.names?.en || p.names?.it || 'Unnamed product';
+    const price    = typeof p.price === 'number' ? formatPrice(p.price) : 'price unavailable';
+    const discount = p.promo_percentage ? ` — ${p.promo_percentage}% off` : '';
+    const qty      = formatQuantity(p.quantity);
+    // Note the spelling: the field really is price_per_meausure_unit. It is a
+    // display string ("2.98 € / L"), not a number, so print it rather than
+    // trying to do arithmetic on it.
+    const perUnit  = p.price_per_meausure_unit ? ` @ ${p.price_per_meausure_unit}` : '';
 
-    console.log(`${rank}. ${name}`);
-    console.log(`    Category: ${category} | ${qty} | ${price}${perUnit}${deadline}`);
-    if (p.tags && p.tags.length > 0) {
-      console.log(`    Tags: ${p.tags.join(', ')}`);
-    }
+    console.log(`${rank}. ${name}${discount}`);
+    console.log(`    ${qty ? `${qty} | ` : ''}${price}${perUnit}`);
     console.log();
   });
 
-  // Category breakdown
-  const byCategory = {};
-  onPromo.forEach(p => {
-    byCategory[p.entity_name] = (byCategory[p.entity_name] || 0) + 1;
-  });
-  const topCategories = Object.entries(byCategory)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
+  // How deep the discounts go. Products with no published percentage are
+  // counted separately rather than silently treated as 0% off.
+  const bands = [
+    { label: '50% or more', test: d => d >= 50 },
+    { label: '30% to 49%',  test: d => d >= 30 },
+    { label: '15% to 29%',  test: d => d >= 15 },
+    { label: 'under 15%',   test: d => d > 0 },
+  ];
 
-  console.log('=== Categories with most promotions ===\n');
-  topCategories.forEach(([cat, count]) => {
-    console.log(`  ${cat.padEnd(30)} ${count} product${count > 1 ? 's' : ''} on promo`);
+  console.log('=== How deep the discounts go ===\n');
+
+  let unpublished = 0;
+  const counts = new Map(bands.map(b => [b.label, 0]));
+
+  products.forEach(p => {
+    const discount = p.promo_percentage ?? 0;
+    if (!discount) {
+      unpublished += 1;
+      return;
+    }
+    const band = bands.find(b => b.test(discount));
+    counts.set(band.label, counts.get(band.label) + 1);
   });
+
+  bands.forEach(({ label }) => {
+    console.log(`  ${label.padEnd(24)} ${counts.get(label)} products`);
+  });
+  console.log(`  ${'no percentage published'.padEnd(24)} ${unpublished} products`);
 }
 
 main().catch(err => {

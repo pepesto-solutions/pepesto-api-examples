@@ -28,6 +28,11 @@ const RECIPE_URL = 'https://www.kwestiasmaku.com/przepis/bigos';
 
 // ─── Step 1: Parse the recipe ─────────────────────────────────────────────────
 
+/**
+ * Parses a recipe URL and returns its kg_token, the compact representation of
+ * the recipe's ingredients that /products takes. The `recipe` object alongside
+ * it is deprecated and now carries nothing but the same token.
+ */
 async function parseRecipe(url) {
   console.log(`Parsing recipe: ${url}\n`);
 
@@ -46,9 +51,9 @@ async function parseRecipe(url) {
     throw new Error(`POST /api/parse failed (${response.status}): ${text}`);
   }
 
-  const data = JSON.parse(text);
+  const { kg_token } = JSON.parse(text);
 
-  return data;
+  return kg_token;
 }
 
 // ─── Step 2: Match to Frisco products ────────────────────────────────────────
@@ -78,12 +83,12 @@ async function matchToFrisco(kgToken) {
 
 // ─── Helper: print basket ────────────────────────────────────────────────────
 
-function printBasket(recipe, productsData) {
+function printBasket(recipeUrl, productsData) {
   const items = productsData.items ?? [];
   let totalCents = 0;
 
   console.log('══════════════════════════════════════════════════════════════');
-  console.log(`  Frisco Basket — ${recipe.title}`);
+  console.log(`  Frisco Basket — ${recipeUrl}`);
   console.log('══════════════════════════════════════════════════════════════\n');
   console.log(`  ${'Ingredient'.padEnd(35)} ${'Frisco product'.padEnd(45)} ${'Price'}`);
   console.log(`  ${'-'.repeat(35)} ${'-'.repeat(45)} ${'-'.repeat(10)}`);
@@ -116,36 +121,25 @@ async function main() {
   }
 
   // --- Parse ---
-  const parseData = await parseRecipe(RECIPE_URL);
-  const recipe    = parseData.recipe;
+  const kgToken = await parseRecipe(RECIPE_URL);
 
-  console.log(`Recipe: "${recipe.title}"`);
-  console.log(`Ingredients found: ${recipe.ingredients.length}`);
-  console.log(`kg_token: ${recipe.kg_token.slice(0, 40)}…\n`);
+  console.log(`kg_token: ${kgToken.slice(0, 40)}…\n`);
 
-  // Example parse response (so you can see the shape without an API key):
+  // Example parse response (so you can see the shape without an API key). The
+  // ingredients are inside the token, not spelled out beside it — read them
+  // back from the item_name of each entry in the /products response below.
   //
   // {
+  //   "kg_token": "EiMKIUJpZ29zIC0tIEh1bnRlcidzIFN0ZXcJ...",
   //   "recipe": {
-  //     "title": "Bigos — Hunter's Stew",
-  //     "ingredients": [
-  //       "500g kapusta kiszona",
-  //       "300g kapusta biała",
-  //       "200g kiełbasa wędzona",
-  //       "200g boczek wędzony",
-  //       "200g wieprzowina",
-  //       "30g suszone grzyby",
-  //       "2 liście laurowe",
-  //       "5 ziaren ziela angielskiego",
-  //       "1 cebula",
-  //       "sól, pieprz"
-  //     ],
+  //     "nutrition": {},
+  //     "portions": { "from": 0, "to": 0 },
   //     "kg_token": "EiMKIUJpZ29zIC0tIEh1bnRlcidzIFN0ZXcJ..."
   //   }
   // }
 
   // --- Match ---
-  const productsData = await matchToFrisco(recipe.kg_token);
+  const productsData = await matchToFrisco(kgToken);
 
   // Example products response snippet (frisco.pl real product names):
   //
@@ -181,7 +175,7 @@ async function main() {
   // }
 
   // --- Print basket ---
-  printBasket(recipe, productsData);
+  printBasket(RECIPE_URL, productsData);
 
   // --- Session example ---
   console.log('// Ready to check out? Pass session_tokens from /products to POST /api/session:');
