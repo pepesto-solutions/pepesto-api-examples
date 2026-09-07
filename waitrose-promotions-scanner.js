@@ -54,6 +54,17 @@ async function fetchWaitroseCatalog() {
 }
 
 /**
+ * The pack size as a short string, e.g. "375g" or "500ml". Returns an empty
+ * string when the catalog does not know the size.
+ */
+function formatQuantity(quantity) {
+  if (!quantity) return '';
+  if (quantity.accurate_grams) return `${quantity.accurate_grams}g`;
+  if (quantity.Unit?.Milliliters) return `${quantity.Unit.Milliliters}ml`;
+  return '';
+}
+
+/**
  * Filter the catalog to only promoted items, then sort by promo_percentage
  * descending so the biggest discounts come first.
  *
@@ -68,13 +79,11 @@ function extractPromotions(products) {
 
     promoItems.push({
       url,
-      name: product.names?.en || product.entity_name,
-      entity: product.entity_name,
+      name: product.names?.en || 'Unnamed product',
       pricePence: product.price,
       promo_percentage: product.promo_percentage || 0,
       pricePerUnit: product.price_per_meausure_unit || '',
-      quantity: product.quantity_str || '',
-      tags: product.tags || [],
+      quantity: formatQuantity(product.quantity),
     });
   }
 
@@ -129,8 +138,8 @@ async function main() {
     const saving = `${item.promo_percentage}% off`.padEnd(10);
     const perUnit = item.pricePerUnit;
     console.log(`  ${rank}${name}${price}${saving}${perUnit}`);
-    if (item.tags.length > 0) {
-      console.log(`      tags: ${item.tags.join(', ')}`);
+    if (item.quantity) {
+      console.log(`      pack size: ${item.quantity}`);
     }
   });
 

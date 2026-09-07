@@ -56,8 +56,8 @@ async function fetchCatalog(domain) {
 }
 
 /**
- * Filter a catalog to only pasta-related products, based on product name
- * and entity_name matching our keyword list.
+ * Filter a catalog to only pasta-related products, by matching the product's
+ * English and Dutch names against our keyword list.
  *
  * @param {object} products
  * @returns {Array<object>}
@@ -67,7 +67,6 @@ function filterPastaProducts(products) {
 
   for (const [url, product] of Object.entries(products)) {
     const namesToSearch = [
-      product.entity_name || '',
       product.names?.en || '',
       product.names?.nl || '',
     ].join(' ').toLowerCase();
@@ -83,15 +82,16 @@ function filterPastaProducts(products) {
 
     results.push({
       url,
-      name: product.names?.en || product.names?.nl || product.entity_name,
+      name: product.names?.en || product.names?.nl || 'Unnamed product',
       nameDutch: product.names?.nl || '',
       priceCents: product.price,        // price in euro cents
       hundredGrams,
       pricePer100g,                     // euro cents per 100g
-      quantityStr: product.quantity_str,
+      // The catalog gives the pack size as a number, not a string. These are
+      // all weight products, so accurate_grams is always the one that is set.
+      quantityStr: `${product.quantity.accurate_grams ?? hundredGrams * 100}g`,
       promo: !!product.promo,
       promo_percentage: product.promo_percentage || 0,
-      tags: product.tags || [],
     });
   }
 

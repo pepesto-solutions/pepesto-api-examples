@@ -55,15 +55,14 @@ function extractPromos(catalog) {
 
     promos.push({
       url,
-      name: product.names?.en || product.names?.de || product.entity_name,
+      name: product.names?.en || product.names?.de || 'Unnamed product',
       nameDe: product.names?.de || '',
-      entity: product.entity_name,
       price: product.price,
       currency: product.currency || 'CHF',
-      quantityStr: product.quantity_str || '',
+      quantityStr: formatQuantity(product.quantity),
       pricePerUnit: product.price_per_meausure_unit || '',
+      discount: product.promo_percentage || 0,
       deadline: product.promo_deadline_yyyy_mm_dd || null,
-      tags: product.tags || [],
     });
   }
 
@@ -79,18 +78,39 @@ function extractPromos(catalog) {
 }
 
 /**
- * Groups promos by broad category (entity_name based).
+ * Groups promos by how deep the discount is. Migros does not publish a
+ * percentage for every promotion, so those are counted on their own rather
+ * than being lumped in with the shallow discounts.
  */
-function groupByCategory(promos) {
-  const groups = {};
+function groupByDiscountBand(promos) {
+  const bands = {
+    '50% or more': [],
+    '30% to 49%': [],
+    '15% to 29%': [],
+    'under 15%': [],
+    'no percentage published': [],
+  };
 
   for (const p of promos) {
-    const cat = p.entity;
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(p);
+    if (!p.discount) bands['no percentage published'].push(p);
+    else if (p.discount >= 50) bands['50% or more'].push(p);
+    else if (p.discount >= 30) bands['30% to 49%'].push(p);
+    else if (p.discount >= 15) bands['15% to 29%'].push(p);
+    else bands['under 15%'].push(p);
   }
 
-  return groups;
+  return bands;
+}
+
+/**
+ * The pack size as a short string, e.g. "375g" or "500ml". Returns an empty
+ * string when the catalog does not know the size.
+ */
+function formatQuantity(quantity) {
+  if (!quantity) return '';
+  if (quantity.accurate_grams) return `${quantity.accurate_grams}g`;
+  if (quantity.Unit?.Milliliters) return `${quantity.Unit.Milliliters}ml`;
+  return '';
 }
 
 /**
@@ -114,8 +134,8 @@ function formatEmailBody(promos, fetchedAt) {
   lines.push('', '=== All current promotions ===');
   for (const p of promos) {
     const price = `CHF ${(p.price / 100).toFixed(2)}`;
-    const tags = p.tags.length ? ` [${p.tags.join(', ')}]` : '';
-    lines.push(`  • ${p.name} (${p.quantityStr}) — ${price}${tags}`);
+    const discount = p.discount ? ` (-${p.discount}%)` : '';
+    lines.push(`  • ${p.name} (${p.quantityStr}) — ${price}${discount}`);
   }
 
   lines.push('', '---');
@@ -146,16 +166,15 @@ async function main() {
   for (const p of display) {
     const price = `CHF ${(p.price / 100).toFixed(2)}`;
     const deadline = p.deadline ? ` — expires ${p.deadline}` : '';
-    const tags = p.tags.length ? ` [${p.tags.join(', ')}]` : '';
-    console.log(`  ${p.name.padEnd(50)} ${price.padEnd(12)} ${p.quantityStr.padEnd(10)}${deadline}${tags}`);
+    const discount = p.discount ? ` (-${p.discount}%)` : '';
+    console.log(`  ${p.name.padEnd(50)} ${price.padEnd(12)} ${p.quantityStr.padEnd(10)}${deadline}${discount}`);
   }
 
-  // Category breakdown
-  const groups = groupByCategory(promos);
-  console.log('\n=== Promos by category ===\n');
-  const sorted = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
-  for (const [cat, items] of sorted.slice(0, 10)) {
-    console.log(`  ${cat.padEnd(35)} ${items.length} item(s)`);
+  // How deep the discounts go
+  const bands = groupByDiscountBand(promos);
+  console.log('\n=== How deep the discounts go ===\n');
+  for (const [band, items] of Object.entries(bands)) {
+    console.log(`  ${band.padEnd(35)} ${items.length} item(s)`);
   }
 
   // Generate email body

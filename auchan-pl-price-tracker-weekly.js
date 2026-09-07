@@ -166,18 +166,16 @@ async function main() {
   // {
   //   "parsed_products": {
   //     "https://zakupy.auchan.pl/products/%C5%82opatka-wieprzowa-auchan-300-g/00971824": {
-  //       "entity_name": "Pork shoulder",
   //       "names": { "en": "Auchan Pork Shoulder", "pl": "Łopatka wieprzowa Auchan" },
   //       "price": 888,
   //       "price_per_meausure_unit": "29.60 zł/kg",
-  //       "quantity_str": "300g"
+  //       "quantity": { "Unit": { "HundredGrams": 3 }, "accurate_grams": 300 }
   //     },
   //     "https://zakupy.auchan.pl/products/%C5%82ata-wo%C5%82owa-auchan-na-wag%C4%99-ok-500-g/00569968": {
-  //       "entity_name": "Beef",
   //       "names": { "en": "Auchan Beef Flank Steak", "pl": "Łata wołowa Auchan" },
   //       "price": 1850,
   //       "price_per_meausure_unit": "36.99 zł/kg",
-  //       "quantity_str": "500g"
+  //       "quantity": { "Unit": { "HundredGrams": 5 }, "accurate_grams": 500 }
   //     }
   //   }
   // }
