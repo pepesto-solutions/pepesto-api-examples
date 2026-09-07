@@ -69,7 +69,8 @@ async function checkCredits(apiKey) {
 
   const data = await response.json();
 
-  console.log('\nCredits remaining:', data.credits_remaining ?? data.credits ?? '(see response)');
+  // /credits answers with euro_cents: your balance in cents, so 5699 means 56.99 €.
+  console.log('\nCredits remaining:', `${(data.euro_cents / 100).toFixed(2)} €`);
   console.log('Full response:', JSON.stringify(data, null, 2));
 
   return data;

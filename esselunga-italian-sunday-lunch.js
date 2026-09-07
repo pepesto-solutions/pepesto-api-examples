@@ -24,6 +24,11 @@ const headers = {
 // The osso buco recipe URL from a popular Italian food blog
 const RECIPE_URL = 'https://ricette.giallozafferano.it/Ossibuchi-alla-milanese.html';
 
+/**
+ * Parses a recipe URL and returns its kg_token, the compact representation of
+ * the recipe's ingredients that /products takes. The `recipe` object alongside
+ * it is deprecated and now carries nothing but the same token.
+ */
 async function parseRecipe(url) {
   console.log(`Parsing recipe: ${url}`);
   const res = await fetch(`${BASE_URL}/parse`, {
@@ -32,7 +37,8 @@ async function parseRecipe(url) {
     body: JSON.stringify({ recipe_url: url, locale: 'it-IT' }),
   });
   if (!res.ok) throw new Error(`/parse failed: ${res.status}`);
-  return res.json();
+  const { kg_token } = await res.json();
+  return kg_token;
 }
 
 async function getEsselungaProducts(kgToken) {
@@ -55,23 +61,10 @@ function formatPrice(cents) {
 
 async function main() {
   // Step 1 — parse the recipe
-  const parseData = await parseRecipe(RECIPE_URL);
-  const recipe = parseData.recipe;
-
-  console.log(`\nRecipe: "${recipe.title}"`);
-  console.log(`Ingredients (${recipe.ingredients.length}):\n`);
-  recipe.ingredients.forEach(ing => console.log(`  • ${ing}`));
-
-  if (recipe.nutrition) {
-    console.log('\nNutrition per recipe:');
-    console.log(`  Calories:      ${recipe.nutrition.calories} kcal`);
-    console.log(`  Protein:       ${recipe.nutrition.protein_grams}g`);
-    console.log(`  Carbohydrates: ${recipe.nutrition.carbohydrates_grams}g`);
-    console.log(`  Fat:           ${recipe.nutrition.fat_grams}g`);
-  }
+  const kgToken = await parseRecipe(RECIPE_URL);
 
   // Step 2 — get Esselunga products
-  const productsData = await getEsselungaProducts(recipe.kg_token);
+  const productsData = await getEsselungaProducts(kgToken);
 
   console.log('\n--- Esselunga shopping list ---\n');
 
@@ -88,10 +81,8 @@ async function main() {
     totalCents += best.product.price.price;
 
     const priceStr = formatPrice(best.product.price.price);
-    const perUnit  = best.product.price_per_measure_unit || '';
     const bio      = best.product.classification?.is_bio ? ' [BIO]' : '';
-    const it_name  = best.product.product_name_it ? ` / ${best.product.product_name_it}` : '';
-    console.log(`  ${item.item_name.padEnd(28)} → ${best.product.product_name}${it_name}${bio} ${priceStr}`);
+    console.log(`  ${item.item_name.padEnd(28)} → ${best.product.product_name}${bio} ${priceStr}`);
   });
 
   console.log(`\nTotal: ${formatPrice(totalCents)} for ${sessionTokens.length} items`);
