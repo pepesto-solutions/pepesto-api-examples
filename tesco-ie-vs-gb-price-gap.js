@@ -24,6 +24,7 @@ const headers = {
 // The basket to price up on both sides of the Irish Sea. These are generic
 // names on purpose: /products resolves each one to whatever the chain actually
 // stocks, which is what makes the two sides comparable.
+// #region price-basket
 const BASKET = [
   'milk',
   'butter',
@@ -89,6 +90,7 @@ async function priceBasketAt(kgToken, domain) {
   }
   return prices;
 }
+// #endregion
 
 async function main() {
   const kgToken = await parseBasket();

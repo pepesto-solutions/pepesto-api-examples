@@ -29,6 +29,7 @@ const headers = {
  * /promotions only the discounted part of it, which is all this script wants
  * and costs a third of the price.
  */
+// #region fetch-promotions
 async function fetchConadPromotions() {
   console.log('Fetching Conad promotions...');
   const res = await fetch(`${BASE_URL}/promotions`, {
@@ -40,6 +41,7 @@ async function fetchConadPromotions() {
   const data = await res.json();
   return Object.entries(data.parsed_products ?? {}).map(([url, product]) => ({ url, ...product }));
 }
+// #endregion
 
 function formatPrice(cents) {
   return `€${(cents / 100).toFixed(2)}`;
@@ -56,37 +58,46 @@ function formatQuantity(quantity) {
   return '';
 }
 
+/** Deepest discount first. Promotions with no published percentage go last. */
+// #region rank-deals
+// promo_percentage is the honest measure of a deal, but Conad only publishes it
+// for straightforward price cuts. A "buy 2 get 3" carries no percentage, so
+// those sort to the back and are ordered by price instead.
+function rankByDiscount(products) {
+  const discountOf = p => p.promo_percentage ?? 0;
+  return [...products].sort(
+    (a, b) => discountOf(b) - discountOf(a) || (a.price ?? 0) - (b.price ?? 0),
+  );
+}
+
+function printDeal(p, i) {
+  const rank     = String(i + 1).padStart(2, ' ');
+  const name     = p.names?.en || p.names?.it || 'Unnamed product';
+  const price    = typeof p.price === 'number' ? formatPrice(p.price) : 'price unavailable';
+  const discount = p.promo_percentage ? ` — ${p.promo_percentage}% off` : '';
+  const qty      = formatQuantity(p.quantity);
+  // Note the spelling: the field really is price_per_meausure_unit. It is a
+  // display string ("2.98 € / L"), not a number, so print it rather than
+  // trying to do arithmetic on it.
+  const perUnit  = p.price_per_meausure_unit ? ` @ ${p.price_per_meausure_unit}` : '';
+
+  console.log(`${rank}. ${name}${discount}`);
+  console.log(`    ${qty ? `${qty} | ` : ''}${price}${perUnit}`);
+  console.log();
+}
+// #endregion
+
 async function main() {
   const products = await fetchConadPromotions();
 
   console.log(`Conad has ${products.length} products on promotion.\n`);
 
-  // promo_percentage is the honest measure of a deal, but Conad only publishes
-  // it for straightforward price cuts. A "buy 2 get 3" carries no percentage,
-  // so those sort to the back and are ordered by price instead.
-  const discountOf = p => p.promo_percentage ?? 0;
-  const ranked = [...products].sort(
-    (a, b) => discountOf(b) - discountOf(a) || (a.price ?? 0) - (b.price ?? 0),
-  );
+  const ranked = rankByDiscount(products);
 
   const TOP_N = 25;
   console.log(`=== Top ${TOP_N} Conad promotions this week ===\n`);
 
-  ranked.slice(0, TOP_N).forEach((p, i) => {
-    const rank     = String(i + 1).padStart(2, ' ');
-    const name     = p.names?.en || p.names?.it || 'Unnamed product';
-    const price    = typeof p.price === 'number' ? formatPrice(p.price) : 'price unavailable';
-    const discount = p.promo_percentage ? ` — ${p.promo_percentage}% off` : '';
-    const qty      = formatQuantity(p.quantity);
-    // Note the spelling: the field really is price_per_meausure_unit. It is a
-    // display string ("2.98 € / L"), not a number, so print it rather than
-    // trying to do arithmetic on it.
-    const perUnit  = p.price_per_meausure_unit ? ` @ ${p.price_per_meausure_unit}` : '';
-
-    console.log(`${rank}. ${name}${discount}`);
-    console.log(`    ${qty ? `${qty} | ` : ''}${price}${perUnit}`);
-    console.log();
-  });
+  ranked.slice(0, TOP_N).forEach(printDeal);
 
   // How deep the discounts go. Products with no published percentage are
   // counted separately rather than silently treated as 0% off.
