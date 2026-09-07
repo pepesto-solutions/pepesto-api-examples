@@ -59,8 +59,10 @@ async function parseShoppingList() {
     throw new Error(`/parse failed: ${response.status} ${text}`);
   }
 
-  const data = JSON.parse(text);
-  return data.recipe.kg_token;
+  // Read kg_token from the top level. The `recipe` object beside it is
+  // deprecated and carries nothing but the same token.
+  const { kg_token } = JSON.parse(text);
+  return kg_token;
 }
 
 async function getProducts(kgToken) {

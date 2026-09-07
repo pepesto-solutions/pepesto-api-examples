@@ -22,8 +22,9 @@ if (!API_KEY) {
 const CARBONARA_RECIPE_URL = 'https://www.bbcgoodfood.com/recipes/ultimate-spaghetti-carbonara-recipe';
 
 /**
- * Calls /api/parse to extract structured ingredients from a recipe URL.
- * Returns the recipe object including kg_token.
+ * Calls /api/parse on a recipe URL and returns its kg_token, the compact
+ * representation of the recipe's ingredients that /products takes. The `recipe`
+ * object alongside it is deprecated and now carries nothing but the same token.
  */
 async function parseRecipe(recipeUrl) {
   const response = await fetch(`${API_BASE}/parse`, {
@@ -43,8 +44,8 @@ async function parseRecipe(recipeUrl) {
     throw new Error(`Pepesto /parse error ${response.status}: ${errorText}`);
   }
 
-  const data = await response.json();
-  return data.recipe;
+  const { kg_token } = await response.json();
+  return kg_token;
 }
 
 /**
@@ -91,18 +92,13 @@ async function main() {
 
   // Step 1: Parse the recipe
   console.log('Step 1: Parsing recipe with /api/parse...\n');
-  const recipe = await parseRecipe(CARBONARA_RECIPE_URL);
+  const kgToken = await parseRecipe(CARBONARA_RECIPE_URL);
 
-  console.log(`Recipe: "${recipe.title}"`);
-  console.log('Ingredients:');
-  for (const ing of recipe.ingredients) {
-    console.log(`  - ${ing}`);
-  }
-  console.log('');
+  console.log(`Recipe: ${CARBONARA_RECIPE_URL}\n`);
 
   // Step 2: Find cheapest Aldi products for each ingredient
   console.log('Step 2: Finding cheapest Aldi CH options with /api/products...\n');
-  const productsData = await fetchAldiProducts(recipe.kg_token);
+  const productsData = await fetchAldiProducts(kgToken);
   const cheapestOptions = pickCheapest(productsData);
 
   if (cheapestOptions.length === 0) {

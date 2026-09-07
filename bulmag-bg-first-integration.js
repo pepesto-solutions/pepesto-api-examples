@@ -29,6 +29,11 @@ const RECIPE_URL = 'https://recepti.gotvach.bg/r-5658-%D0%9A%D0%BB%D0%B0%D1%81%D
 
 // ─── Step 1: Parse the recipe ─────────────────────────────────────────────────
 
+/**
+ * Parses a recipe URL and returns its kg_token, the compact representation of
+ * the recipe's ingredients that /products takes. The `recipe` object alongside
+ * it is deprecated and now carries nothing but the same token.
+ */
 async function parseRecipe(url) {
   console.log(`Parsing recipe: ${url}\n`);
 
@@ -46,7 +51,8 @@ async function parseRecipe(url) {
     throw new Error(`POST /api/parse failed (${response.status}): ${text}`);
   }
 
-  return response.json();
+  const { kg_token } = await response.json();
+  return kg_token;
 }
 
 // ─── Step 2: Match to Bulmag products ────────────────────────────────────────
@@ -89,35 +95,25 @@ async function main() {
   }
 
   // --- Parse ---
-  const parseData = await parseRecipe(RECIPE_URL);
-  const recipe    = parseData.recipe;
+  const kgToken = await parseRecipe(RECIPE_URL);
 
-  console.log(`Recipe: "${recipe.title}"`);
-  console.log(`Ingredients: ${recipe.ingredients.length}`);
-  console.log(`kg_token: ${recipe.kg_token.slice(0, 40)}…\n`);
+  console.log(`kg_token: ${kgToken.slice(0, 40)}…\n`);
 
-  // Example parse response for bob chorba:
+  // Example parse response for bob chorba. The ingredients are inside the
+  // token, not spelled out beside it — read them back from the
+  // ingredient_label of each match in the /products response below.
   //
   // {
+  //   "kg_token": "EiYKJEJvYiBjaG9yYmEga2xhc2ljaGVza2...",
   //   "recipe": {
-  //     "title": "Боб чорба класическа",
-  //     "ingredients": [
-  //       "500g боб (бял или шарен)",
-  //       "1 глава лук",
-  //       "2 моркова",
-  //       "1 стрък праз",
-  //       "1 домат",
-  //       "30ml слънчогледово олио",
-  //       "1 ч.л. чубрица",
-  //       "1 ч.л. червен пипер",
-  //       "сол"
-  //     ],
+  //     "nutrition": {},
+  //     "portions": { "from": 0, "to": 0 },
   //     "kg_token": "EiYKJEJvYiBjaG9yYmEga2xhc2ljaGVza2..."
   //   }
   // }
 
   // --- Match ---
-  const productsData = await matchToBulmag(recipe.kg_token);
+  const productsData = await matchToBulmag(kgToken);
   const matches = productsData.matches ?? {};
 
   // Example products response (real bulmag.org product names):
@@ -157,7 +153,7 @@ async function main() {
   const noMatches     = [];
 
   console.log('══════════════════════════════════════════════════════════════════════');
-  console.log('  Bulmag Match Report — ' + recipe.title);
+  console.log('  Bulmag Match Report — ' + RECIPE_URL);
   console.log('══════════════════════════════════════════════════════════════════════\n');
 
   for (const [_key, match] of Object.entries(matches)) {

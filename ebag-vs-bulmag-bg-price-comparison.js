@@ -27,6 +27,11 @@ const RECIPE_URL = 'https://recepti.gotvach.bg/r-9784-%D0%9A%D0%BB%D0%B0%D1%81%D
 
 // ─── Step 1: Parse recipe ─────────────────────────────────────────────────────
 
+/**
+ * Parses a recipe URL and returns its kg_token, the compact representation of
+ * the recipe's ingredients that /products takes. The `recipe` object alongside
+ * it is deprecated and now carries nothing but the same token.
+ */
 async function parseRecipe(url) {
   console.log(`Parsing recipe: ${url}\n`);
 
@@ -45,9 +50,9 @@ async function parseRecipe(url) {
     throw new Error(`POST /api/parse failed (${response.status}): ${text}`);
   }
 
-  const data = JSON.parse(text);
+  const { kg_token } = JSON.parse(text);
 
-  return data;
+  return kg_token;
 }
 
 // ─── Step 2: Match to a given supermarket ────────────────────────────────────
@@ -99,26 +104,17 @@ async function main() {
   }
 
   // --- Parse ---
-  const parseData = await parseRecipe(RECIPE_URL);
-  const recipe    = parseData.recipe;
-  console.log(`Recipe: "${recipe.title}" — ${recipe.ingredients.length} ingredients\n`);
+  const kgToken = await parseRecipe(RECIPE_URL);
 
-  // Example parse response for musaka:
+  // Example parse response for musaka. The ingredients are inside the token,
+  // not spelled out beside it — read them back from the item_name of each
+  // entry in the /products response below.
   //
   // {
+  //   "kg_token": "EiYKJE11c2FrYSBzIGthcnRvZmVuaSBwYWdvbmk...",
   //   "recipe": {
-  //     "title": "Мусака с картофени пагони",
-  //     "ingredients": [
-  //       "500g кайма (свинска или смесена)",
-  //       "800g картофи",
-  //       "2 яйца",
-  //       "200ml мляко",
-  //       "1 лук",
-  //       "2 домата",
-  //       "50ml слънчогледово олио",
-  //       "сол, черен пипер",
-  //       "червен пипер"
-  //     ],
+  //     "nutrition": {},
+  //     "portions": { "from": 0, "to": 0 },
   //     "kg_token": "EiYKJE11c2FrYSBzIGthcnRvZmVuaSBwYWdvbmk..."
   //   }
   // }
@@ -126,8 +122,8 @@ async function main() {
   // --- Match at both stores in parallel ---
   console.log('Matching ingredients at ebag.bg and bulmag.org in parallel…\n');
   const [ebagData, bulmagData] = await Promise.all([
-    matchToStore(recipe.kg_token, 'ebag.bg'),
-    matchToStore(recipe.kg_token, 'bulmag.org'),
+    matchToStore(kgToken, 'ebag.bg'),
+    matchToStore(kgToken, 'bulmag.org'),
   ]);
 
   // Response shape: { items: [{ item_name, products: [{ product: { product_name, price: { price } }, session_token }] }], currency }
@@ -145,7 +141,7 @@ async function main() {
   let ties        = 0;
 
   console.log('══════════════════════════════════════════════════════════════════════════════════');
-  console.log('  eBag vs Bulmag — ' + recipe.title);
+  console.log('  eBag vs Bulmag — ' + RECIPE_URL);
   console.log('══════════════════════════════════════════════════════════════════════════════════\n');
   console.log(`  ${'Ingredient'.padEnd(30)} ${'eBag product (bg)'.padEnd(35)} ${'eBag €'.padStart(8)} ${'Bulmag product (bg)'.padEnd(35)} ${'Bulmag €'.padStart(9)} ${'Winner'.padStart(8)}`);
   console.log(`  ${'-'.repeat(30)} ${'-'.repeat(35)} ${'-'.repeat(8)} ${'-'.repeat(35)} ${'-'.repeat(9)} ${'-'.repeat(8)}`);
