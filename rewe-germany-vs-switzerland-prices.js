@@ -29,6 +29,7 @@ const headers = {
 // /products resolves each one to whatever that chain actually stocks, which is
 // what makes a German price and a Swiss price comparable at all. Keep it to 30
 // items — that is what /parse accepts in one shopping list.
+// #region price-basket
 const BASKET = [
   'milk', 'butter', 'cheese', 'mozzarella cheese', 'eggs', 'yoghurt',
   'beef', 'ground pork', 'chicken', 'bacon', 'sausage',
@@ -76,6 +77,7 @@ async function priceBasketAt(kgToken, domain) {
 
   return response.json();
 }
+// #endregion
 
 /**
  * Converts a /products response to a map of item → cheapest product, with the
@@ -83,6 +85,7 @@ async function priceBasketAt(kgToken, domain) {
  * cheapest is kept, so the two countries are always compared on the best price
  * each store offers. Swiss prices go through the conversion rate first.
  */
+// #region build-index
 function buildCategoryIndex(productsData, currency) {
   const index = {};
 
@@ -106,9 +109,10 @@ function buildCategoryIndex(productsData, currency) {
 
   return index;
 }
+// #endregion
 
 /**
- * Groups entity names into broad grocery categories.
+ * Groups item names into broad grocery categories.
  */
 function categorise(entityName) {
   const dairy = ['Milk', 'Butter', 'Cheese', 'Mozzarella cheese', 'Parmesan cheese', 'Fresh cheese', 'Cream', 'Yoghurt', 'Sour cream'];

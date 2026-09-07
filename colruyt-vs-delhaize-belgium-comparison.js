@@ -26,6 +26,7 @@ const headers = {
 // resolves each one to whatever that chain actually stocks, which is what makes
 // the two sides comparable. Keep it to 30 items — that is what /parse accepts
 // in one shopping list.
+// #region price-basket
 const BASKET = [
   'ground pork', 'beef', 'chicken', 'sausage', 'bacon',
   'milk', 'butter', 'cheese', 'eggs', 'yoghurt', 'mozzarella cheese',
@@ -74,6 +75,7 @@ async function priceBasketAt(kgToken, domain) {
 
   return response.json();
 }
+// #endregion
 
 /**
  * Groups item names into Belgian grocery categories.
@@ -100,6 +102,7 @@ function categorise(entityName) {
  * comes back with several candidate products; the cheapest one is what the two
  * chains get compared on.
  */
+// #region build-index
 function buildEntityIndex(productsData) {
   const index = {};
 
@@ -120,10 +123,12 @@ function buildEntityIndex(productsData) {
 
   return index;
 }
+// #endregion
 
 /**
- * Matches entities present in both stores and compares prices.
+ * Matches items present in both stores and compares prices.
  */
+// #region compare-stores
 function compareStores(colruytIndex, delhaizeIndex) {
   const matches = [];
 
@@ -149,6 +154,7 @@ function compareStores(colruytIndex, delhaizeIndex) {
   matches.sort((a, b) => Math.abs(b.diffCents) - Math.abs(a.diffCents));
   return matches;
 }
+// #endregion
 
 /**
  * Calculates a category-level scorecard.
