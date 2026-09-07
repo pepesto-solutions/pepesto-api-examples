@@ -21,65 +21,99 @@ const headers = {
   'Authorization': `Bearer ${API_KEY}`,
 };
 
-async function fetchCatalog(domain) {
-  console.log(`Fetching catalog for ${domain}...`);
-  const res = await fetch(`${BASE_URL}/catalog`, {
+// The basket to price up on both sides of the Irish Sea. These are generic
+// names on purpose: /products resolves each one to whatever the chain actually
+// stocks, which is what makes the two sides comparable.
+const BASKET = [
+  'milk',
+  'butter',
+  'cheddar cheese',
+  'eggs',
+  'chicken breast',
+  'minced beef',
+  'spaghetti',
+  'basmati rice',
+  'tinned tomatoes',
+  'olive oil',
+  'potatoes',
+  'onions',
+  'carrots',
+  'bananas',
+  'apples',
+  'orange juice',
+  'white bread',
+  'porridge oats',
+  'tea bags',
+  'coffee',
+];
+
+/**
+ * Turns the shopping list into a kg_token. The token is Pepesto's reading of
+ * what was asked for, so sending the same one to both chains is what lets the
+ * two baskets line up item by item.
+ */
+async function parseBasket() {
+  console.log(`Parsing a ${BASKET.length}-item basket...`);
+  const res = await fetch(`${BASE_URL}/parse`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ supermarket_domain: domain }),
+    body: JSON.stringify({ recipe_text: BASKET.join('\n') }),
   });
-  if (!res.ok) throw new Error(`/catalog ${domain} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`/parse failed: ${res.status}`);
+  const { kg_token } = await res.json();
+  return kg_token;
+}
+
+/** Prices the basket at one chain, as a map of item name → cheapest match. */
+async function priceBasketAt(kgToken, domain) {
+  console.log(`Pricing the basket at ${domain}...`);
+  const res = await fetch(`${BASE_URL}/products`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ recipe_kg_tokens: [kgToken], supermarket_domain: domain }),
+  });
+  if (!res.ok) throw new Error(`/products ${domain} failed: ${res.status}`);
   const data = await res.json();
-  return data.parsed_products;
-}
 
-function buildEntityMap(products) {
-  const map = {};
-  for (const [url, product] of Object.entries(products)) {
-    const key = product.entity_name;
-    if (!map[key]) map[key] = [];
-    map[key].push({ url, ...product });
+  const prices = {};
+  for (const item of data.items ?? []) {
+    const cheapest = (item.products ?? [])
+      .filter(p => typeof p.product?.price?.price === 'number')
+      .sort((a, b) => a.product.price.price - b.product.price.price)[0];
+    if (!cheapest) continue;
+
+    prices[item.item_name] = {
+      name: cheapest.product.product_name || 'Unnamed product',
+      price: cheapest.product.price.price,
+    };
   }
-  return map;
-}
-
-function bestPrice(products) {
-  return products.reduce((min, p) => p.price < min.price ? p : min, products[0]);
+  return prices;
 }
 
 async function main() {
-  // Fetch both catalogs in parallel
-  const [ieProducts, gbProducts] = await Promise.all([
-    fetchCatalog('tesco.ie'),
-    fetchCatalog('tesco.com'),
+  const kgToken = await parseBasket();
+
+  // Both chains price the same basket, in parallel.
+  const [ie, gb] = await Promise.all([
+    priceBasketAt(kgToken, 'tesco.ie'),
+    priceBasketAt(kgToken, 'tesco.com'),
   ]);
 
-  const ieMap = buildEntityMap(ieProducts);
-  const gbMap = buildEntityMap(gbProducts);
+  // Only items both chains matched can be compared.
+  const shared = Object.keys(ie).filter(item => gb[item]);
 
-  // Find entities present in both catalogs
-  const shared = Object.keys(ieMap).filter(e => gbMap[e]);
-
-  console.log(`\nComparing ${shared.length} shared product categories between Tesco IE and Tesco GB`);
+  console.log(`\nComparing ${shared.length} items Tesco IE and Tesco GB both stock`);
   console.log('Note: prices shown in local currency (EUR for IE, GBP for GB).');
   console.log('EUR/GBP are approximately at parity for easy comparison.\n');
 
-  const rows = [];
-  for (const entity of shared) {
-    const ie = bestPrice(ieMap[entity]);
-    const gb = bestPrice(gbMap[entity]);
-    const ieCents  = ie.price;
-    const gbPence  = gb.price;
-    const diff     = ieCents - gbPence; // negative = IE cheaper
-    rows.push({
-      entity,
-      ieName: ie.names?.en ?? "No name provided",
-      gbName: gb.names?.en ?? "No name provided",
-      ieCents,
-      gbPence,
-      diff,
-    });
-  }
+  const rows = shared.map(item => ({
+    item,
+    ieName:  ie[item].name,
+    gbName:  gb[item].name,
+    ieCents: ie[item].price,
+    gbPence: gb[item].price,
+    diff:    ie[item].price - gb[item].price, // negative = IE cheaper
+  }));
 
   // Sort: biggest gap first
   rows.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
@@ -90,7 +124,7 @@ async function main() {
     const gbStr  = `£${(r.gbPence / 100).toFixed(2)} (${r.gbName})`;
     const winner = r.diff < 0 ? 'IE cheaper' : 'GB cheaper';
     const gap    = `${Math.abs(r.diff / 100).toFixed(2)}`;
-    console.log(`${r.entity.padEnd(28)} IE: ${ieStr.padEnd(40)} GB: ${gbStr.padEnd(40)} → ${winner} by ${gap}`);
+    console.log(`${r.item.padEnd(28)} IE: ${ieStr.padEnd(46)} GB: ${gbStr.padEnd(46)} → ${winner} by ${gap}`);
   });
 
   // Summary stats
@@ -98,9 +132,9 @@ async function main() {
   const gbCheaper = rows.filter(r => r.diff > 0).length;
 
   console.log('\n=== Summary ===');
-  console.log(`Categories where IE is cheaper: ${ieCheaper}`);
-  console.log(`Categories where GB is cheaper: ${gbCheaper}`);
-  console.log(`Categories with equal price:    ${rows.length - ieCheaper - gbCheaper}`);
+  console.log(`Items where IE is cheaper: ${ieCheaper}`);
+  console.log(`Items where GB is cheaper: ${gbCheaper}`);
+  console.log(`Items at the same price:   ${rows.length - ieCheaper - gbCheaper}`);
 }
 
 main().catch(err => {

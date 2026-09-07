@@ -20,18 +20,53 @@ if (!API_KEY) {
 // 1 CHF ≈ 1.04 EUR (April 2026 approximation)
 const CHF_TO_EUR = 1.04;
 
+const headers = {
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${API_KEY}`,
+};
+
+// The basket both countries have to price. Generic names on purpose:
+// /products resolves each one to whatever that chain actually stocks, which is
+// what makes a German price and a Swiss price comparable at all. Keep it to 30
+// items — that is what /parse accepts in one shopping list.
+const BASKET = [
+  'milk', 'butter', 'cheese', 'mozzarella cheese', 'eggs', 'yoghurt',
+  'beef', 'ground pork', 'chicken', 'bacon', 'sausage',
+  'tomatoes', 'onions', 'garlic', 'carrots', 'potatoes', 'lettuce', 'apples', 'bananas',
+  'spaghetti', 'rice', 'flour', 'sugar', 'salt', 'olive oil', 'bread',
+  'coffee', 'tea', 'orange juice', 'sparkling water',
+];
+
 /**
- * Fetches the full catalog for a given supermarket domain.
+ * Turns the shopping list into a kg_token. Sending the same token to both
+ * chains is what lets the two baskets line up item by item.
  */
-async function fetchCatalog(domain) {
-  console.log(`Fetching catalog for ${domain}...`);
-  const response = await fetch(`${API_BASE}/catalog`, {
+async function parseBasket() {
+  console.log(`Parsing a ${BASKET.length}-item basket...`);
+  const response = await fetch(`${API_BASE}/parse`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({ supermarket_domain: domain }),
+    headers,
+    body: JSON.stringify({ recipe_text: BASKET.join('\n') }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Pepesto API error — ${response.status}: ${errorText}`);
+  }
+
+  const { kg_token } = await response.json();
+  return kg_token;
+}
+
+/**
+ * Prices the basket at one chain.
+ */
+async function priceBasketAt(kgToken, domain) {
+  console.log(`Pricing the basket at ${domain}...`);
+  const response = await fetch(`${API_BASE}/products`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ recipe_kg_tokens: [kgToken], supermarket_domain: domain }),
   });
 
   if (!response.ok) {
@@ -39,42 +74,34 @@ async function fetchCatalog(domain) {
     throw new Error(`Pepesto API error for ${domain} — ${response.status}: ${errorText}`);
   }
 
-  const data = await response.json();
-  return data.parsed_products;
+  return response.json();
 }
 
 /**
- * Converts a catalog to a map of category → cheapest product (price in EUR cents).
- * Each product's entity_name is its category (e.g. "Milk", "Butter"). When multiple
- * products share the same category, only the cheapest one is kept — so we always
- * compare the best available price each store offers per category.
- * For CHF prices, applies the conversion rate.
+ * Converts a /products response to a map of item → cheapest product, with the
+ * price in EUR cents. Each item comes back with several candidate products; the
+ * cheapest is kept, so the two countries are always compared on the best price
+ * each store offers. Swiss prices go through the conversion rate first.
  */
-function buildCategoryIndex(catalog, currency) {
+function buildCategoryIndex(productsData, currency) {
   const index = {};
 
-  for (const [url, product] of Object.entries(catalog)) {
-    const category = product.entity_name;
-    if (!category) continue;
+  for (const item of productsData.items ?? []) {
+    const cheapest = (item.products ?? [])
+      .filter(p => typeof p.product?.price?.price === 'number')
+      .sort((a, b) => a.product.price.price - b.product.price.price)[0];
+    if (!cheapest) continue;
 
-    // Convert price to EUR cents
-    let priceEurCents = product.price;
-    if (currency === 'CHF') {
-      priceEurCents = Math.round(product.price * CHF_TO_EUR);
-    }
+    const price = cheapest.product.price.price;
+    const priceEurCents = currency === 'CHF' ? Math.round(price * CHF_TO_EUR) : price;
 
-    // Keep only the cheapest product for this category
-    const existing = index[category];
-    if (!existing || priceEurCents < existing.priceEurCents) {
-      index[category] = {
-        name: product.names?.en || product.names?.de || category,
-        priceEurCents,
-        originalPrice: product.price,
-        originalCurrency: currency,
-        quantityStr: product.quantity_str || '',
-        url,
-      };
-    }
+    index[item.item_name] = {
+      name: cheapest.product.product_name || item.item_name,
+      priceEurCents,
+      originalPrice: price,
+      originalCurrency: currency,
+      url: cheapest.product.product_id || '',
+    };
   }
 
   return index;
@@ -115,12 +142,11 @@ function compareMarkets(reweIndex, coopIndex) {
     matches.push({
       category,
       categoryGroup: categorise(category),
-      rewe: { name: rewe.name, priceEurCents: rewe.priceEurCents, quantityStr: rewe.quantityStr },
+      rewe: { name: rewe.name, priceEurCents: rewe.priceEurCents },
       coop: {
         name: coop.name,
         priceEurCents: coop.priceEurCents,
         originalPrice: coop.originalPrice,
-        quantityStr: coop.quantityStr,
       },
       diffCents,
       diffPct: diffPct.toFixed(1),
@@ -158,22 +184,24 @@ async function main() {
   console.log('=== REWE (Germany) vs Coop CH (Switzerland) — Price Comparison ===');
   console.log(`CHF→EUR conversion rate: 1 CHF = ${CHF_TO_EUR} EUR\n`);
 
-  // Fetch both catalogs in parallel
-  const [reweCatalog, coopCatalog] = await Promise.all([
-    fetchCatalog('shop.rewe.de'),
-    fetchCatalog('coop.ch'),
+  const kgToken = await parseBasket();
+
+  // Price the same basket at both chains in parallel
+  const [reweData, coopData] = await Promise.all([
+    priceBasketAt(kgToken, 'shop.rewe.de'),
+    priceBasketAt(kgToken, 'coop.ch'),
   ]);
 
-  console.log(`REWE: ${Object.keys(reweCatalog).length} products`);
-  console.log(`Coop CH: ${Object.keys(coopCatalog).length} products\n`);
+  // Build the indexes (cheapest product per item, per store)
+  const reweIndex = buildCategoryIndex(reweData, 'EUR');
+  const coopIndex = buildCategoryIndex(coopData, 'CHF');
 
-  // Build category indexes (cheapest product per category, per store)
-  const reweIndex = buildCategoryIndex(reweCatalog, 'EUR');
-  const coopIndex = buildCategoryIndex(coopCatalog, 'CHF');
+  console.log(`\nREWE priced up ${Object.keys(reweIndex).length} of the ${BASKET.length} items`);
+  console.log(`Coop CH priced up ${Object.keys(coopIndex).length} of the ${BASKET.length} items\n`);
 
-  // Find matching categories and compare
+  // Find items both stores matched and compare
   const matches = compareMarkets(reweIndex, coopIndex);
-  console.log(`Found ${matches.length} categories present in both stores.\n`);
+  console.log(`Found ${matches.length} items present in both stores.\n`);
 
   // Print top 15 biggest price differences
   console.log('=== Top price differences (converted to EUR) ===\n');
